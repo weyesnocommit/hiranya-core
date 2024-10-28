@@ -5,8 +5,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
 
-from config.armchair_expert import IMPORT_TRAINING_DB_PATH
+from config.db_config import IMPORT_TRAINING_DB_PATH
 from storage.storage_common import TrainingDataManager
+import sqlite3
 
 Base = declarative_base()
 
@@ -23,11 +24,11 @@ Base.metadata.create_all(engine)
 session_factory = sessionmaker()
 session_factory.configure(bind=engine)
 Session = scoped_session(session_factory)
-
+conn = sqlite3.connect(IMPORT_TRAINING_DB_PATH)
 
 class ImportTrainingDataManager(TrainingDataManager):
     def __init__(self):
-        TrainingDataManager.__init__(self, ImportedMessage)
+        TrainingDataManager.__init__(self, ImportedMessage, conn)
         self._session = Session()
 
     def store(self, data: str):

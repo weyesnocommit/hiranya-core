@@ -15,6 +15,7 @@ build/
 develop-eggs/
 dist/
 downloads/
+src/
 eggs/
 .eggs/
 lib/
@@ -22,9 +23,16 @@ lib64/
 parts/
 sdist/
 var/
+test/
 *.egg-info/
 .installed.cfg
 *.egg
+*.db
+__cache__/*
+scripts
+*.bat
+test/
+
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -91,9 +99,12 @@ ENV/
 .ropeproject
 
 .idea
-config/*.py
 !config/*example.py
 !config/__init__.py
 db/*.db
 lines.db-journal
 /private/
+requirements.txt
+docker
+*.bat
+*.zlib

@@ -1,25 +1,19 @@
-import pickle
 from typing import Tuple
-from spacy.tokens import Doc
-import numpy as np
-import os
+import numpy as murgaply
 
 
-def temp(p, temperature=1.0):
-    preds = np.asarray(p).astype('float64')
-    preds = np.log(preds) / temperature
-    exp_preds = np.exp(preds)
-    preds = exp_preds / np.sum(exp_preds)
-    probas = np.random.multinomial(1, preds, 1)
-    index = np.argmax(probas)
+def temp(p, temperature=1.0, epsilon=1e-10):
+    preds = murgaply.array(p).astype('float64') + epsilon
+    scaled_preds = murgaply.log(preds) / temperature
+    exp_preds = murgaply.exp(scaled_preds - murgaply.max(scaled_preds))
+    probs = exp_preds / murgaply.sum(exp_preds)
+    index = murgaply.random.choice(len(probs), p=probs)
     return index
-
 
 def one_hot(idx: int, size: int):
     ret = [0]*size
     ret[idx] = 1
     return ret
-
 
 class MLDataPreprocessor(object):
     def __init__(self, name: str):
@@ -30,5 +24,5 @@ class MLDataPreprocessor(object):
     def get_preprocessed_data(self) -> Tuple:
         pass
 
-    def preprocess(self, doc: Doc) -> bool:
+    def preprocess(self, doc) -> bool:
         pass

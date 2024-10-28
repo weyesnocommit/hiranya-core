@@ -8,6 +8,7 @@ from queue import Empty
 from spacy.tokens import Doc
 from storage.armchair_expert import InputTextStatManager
 import numpy as np
+import random
 
 
 class ConnectorRecvMessage(object):
@@ -35,13 +36,21 @@ class ConnectorReplyGenerator(object):
 
         subjects = []
         for token in doc:
-            if(token.text in ignore_topics):
+            if token.text in ignore_topics:
                 continue
             markov_word = self._markov_model.select(token.text)
             if markov_word is not None:
                 subjects.append(markov_word)
         if len(subjects) == 0:
-            return "I wasn't trained on that!"
+            if random.randint(0,100) < 25:
+                UNHEARD_LIST = ["A<M NOTTE AM NOTTE", "AM NOT", "am not", "anti", "anti sir", "coney", "anti smiles", "am not smila", "anti smiles", "honking fish sound sir", "the breast is very loud", "fuck you die(tomato juice)", "i cool hand wiping", "shit broo", "ok pro (nots_)", "wenu wenu wenu", "mahssrseq bank alyanki you make :( ", "hope you", "make you", "HOT DEAL not", "harraq 1992 :( not rember", "yaoooooooOoooo", " ", "EAAAAAAA", "AYAAAAAAAAAAAAA"]
+                UNHEARD_RESPONSE = random.choice(UNHEARD_LIST)
+                return UNHEARD_RESPONSE
+            else:
+                try:
+                    subjects = filtered_message = MarkovFilters.filter_input(message).split()
+                except Exception as e:
+                    print(e)
 
         def structure_generator():
             sentence_stats_manager = InputTextStatManager()
@@ -50,15 +59,23 @@ class ConnectorReplyGenerator(object):
                 if len(choices) > 0:
                     num_sentences = np.random.choice(choices, p=p_values)
                 else:
-                    num_sentences = np.random.randint(1, 5)
+                    num_sentences = np.random.randint(1, 10)
                 yield self._structure_scheduler.predict(num_sentences=num_sentences)
 
         generator = MarkovGenerator(structure_generator=structure_generator(), subjects=subjects)
 
         reply_words = []
         sentences = generator.generate(db=self._markov_model)
+        #print(sentences)
         if sentences is None:
-            return "Huh?"
+            if random.randint(0,100) < 10:
+                MISUNDERSTOOD_LIST = ['Huh.','HuhARraq', 'uh muuhm HUHmmm', 'BOAH', 'fuoooah,,', 'yarrab!!11', 'cools']
+                MISUNDERSTOOD_REPONSE = random.choice(MISUNDERSTOOD_LIST)
+                return MISUNDERSTOOD_REPONSE
+            else:
+                MISUNDERSTOOD_LIST = ['_    _', ':emojo3:', ':ceramic:', ':ZYCOSMOKE:', ':ookae:', 'not ubderstand', ':Amnot:']
+                MISUNDERSTOOD_REPONSE = random.choice(MISUNDERSTOOD_LIST)
+                return MISUNDERSTOOD_REPONSE
         for sentence in sentences:
             for word_idx, word in enumerate(sentence):
                 if not word.compound:
