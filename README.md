@@ -1,3 +1,9 @@
+# insalltka
+
+https://drive.google.com/file/d/1DCNqGsRRIibbbp9UZIDGqsqe1vaa_1x0/view?usp=sharing
+
+Nake u download weights and put d zlib file in weights folder o
+
 # About
 armchair-expert is a chatbot inspired by old Markov chain IRC bots like PyBorg. It regurgitates what it learns from you in unintentionally hilarious ways.
 
