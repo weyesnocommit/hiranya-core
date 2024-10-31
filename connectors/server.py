@@ -58,7 +58,6 @@ class ZmqWorker(ConnectorWorker):
         ConnectorWorker.__init__(self, name='ZmqWorker', read_queue=read_queue, write_queue=write_queue,
                                  shutdown_event=shutdown_event)
         self._logger = None
-        
 
     async def handle_message(self, message):
         try:
@@ -76,7 +75,7 @@ class ZmqWorker(ConnectorWorker):
             self._logger.error(e)
             return "HUUNGNANHJANFHAISFJ ASNFUASH WASGW FAM WHA WKD"
 
-    async def zmq_server(self):
+    async def zmq_server_(self):
         while not self._shutdown_event.is_set():
             packed_message = None
             try:
@@ -93,10 +92,47 @@ class ZmqWorker(ConnectorWorker):
                 self._logger.error(f"Error processing message: {str(e)}")
                 self._logger.error(packed_message)
                 
+    async def zmq_server(self):
+        self.context = zmq.Context()
+        self.socket = self.context.socket(zmq.REP)
+        self.socket.bind(f"tcp://127.0.0.1:{MARKOV_PORT}")
+        print(f"SERCER PORT {MARKOV_PORT}")
+        while not self._shutdown_event.is_set():
+            data = None
+            try:
+                message = self.socket.recv()
+                data = None
+                msg_type = None
+                
+                try:
+                    data = msgpack.unpackb(message)
+                    msg_type = 0
+                except:
+                    try:
+                        data = json.loads(message.decode('utf-8'))
+                        msg_type = 1
+                    except:
+                        self._logger.error("Failed to decode message as msgpack or JSON")
+                        continue
+                    
+                response = await self.handle_message(data)
+                if msg_type == 0:
+                    packed_response = msgpack.packb(response)
+                    self.socket.send(packed_response, flags=zmq.NOBLOCK)
+                else:
+                    packed_response = json.dumps(response)
+                    self.socket.send_string(packed_response, flags=zmq.NOBLOCK)
+            except Exception as e:
+                if "current state" in str(e):
+                    self.socket.close()
+                    self.socket = self.context.socket(zmq.REP)
+                    self.socket.bind(f"tcp://127.0.0.1:{MARKOV_PORT}")
+                self._logger.error(e)
+                self._logger.error(f"requesttt {data}")
                 
     def run(self):
-        self._context = zmq.Context()
-        self._socket = self._context.socket(zmq.REP)
+        #self._context = zmq.Context()
+        #self._socket = self._context.socket(zmq.REP)
         from storage.message_storage import DiscordTrainingDataManager
         logging.basicConfig(
             level=MARKOV_SERVER_LOG_LEVEL,
@@ -106,7 +142,7 @@ class ZmqWorker(ConnectorWorker):
         self._logger = logging.getLogger(self.__class__.__name__)
         self._db = DiscordTrainingDataManager()
 
-        self._socket.bind(f"tcp://127.0.0.1:{MARKOV_PORT}")
+        #self._socket.bind(f"tcp://127.0.0.1:{MARKOV_PORT}")
         loop = asyncio.get_event_loop()
         try:
             loop.run_until_complete(self.zmq_server())
