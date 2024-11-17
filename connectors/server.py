@@ -10,6 +10,7 @@ from queue import Queue
 from threading import Event
 import msgpack
 import json
+from config.nlp_config import MARKOV_MODEL_TEMPERATURE, STRUCTURE_MODEL_TEMPERATURE
 
 class DiscordReplyGenerator(ConnectorReplyGenerator):
 
@@ -27,8 +28,8 @@ class DiscordReplyGenerator(ConnectorReplyGenerator):
     SPECIFIC_USER_PATTERN = re.compile(r'794890213977358337', re.IGNORECASE)
     CHANNEL_PATTERN = re.compile(r'795310503135412264', re.IGNORECASE)
     
-    def generate(self, message: str, doc: Doc = None) -> Optional[str]:
-        reply = super().generate(message, doc, ignore_topics=[""])
+    def generate(self, message: str, markov_temp: float, struct_temp: float, doc: Doc=None, ignore_topics = None) -> Optional[str]:
+        reply = super().generate(message, markov_temp, struct_temp, doc, ignore_topics)
         
         if reply is None:
             return None
@@ -65,8 +66,17 @@ class ZmqWorker(ConnectorWorker):
             if message['type'] == 'ping':
                 return ({'type': 'pong', 'from': 'markov'})
             self._logger.info(message)
-            notknow = ConnectorRecvMessage(message['text'], message['learn'], message['reply'])
-            self.send(notknow)
+            if not message.get('text', ""):
+                return None
+            huharraq = ConnectorRecvMessage(
+                message['text'],
+                message['learn'], 
+                message['reply'], 
+                message.get('markov_temp', MARKOV_MODEL_TEMPERATURE),
+                message.get('struct_temp', STRUCTURE_MODEL_TEMPERATURE),
+                message.get('ignore_topics', []),
+            )
+            self.send(huharraq)
             reply = self.recv() 
             if message['store'] and message['dmessage']:
                 self._db.store_dict(message['dmessage'])  # Store the deserialized object
@@ -118,10 +128,10 @@ class ZmqWorker(ConnectorWorker):
                 response = await self.handle_message(data)
                 if msg_type == 0:
                     packed_response = msgpack.packb(response)
-                    self.socket.send(packed_response, flags=zmq.NOBLOCK)
+                    self.socket.send(packed_response)#, flags=zmq.NOBLOCK)
                 else:
                     packed_response = json.dumps(response)
-                    self.socket.send_string(packed_response, flags=zmq.NOBLOCK)
+                    self.socket.send_string(packed_response)#, flags=zmq.NOBLOCK)
             except Exception as e:
                 if "current state" in str(e):
                     self.socket.close()

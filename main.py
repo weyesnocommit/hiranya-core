@@ -4,6 +4,7 @@ import argparse
 import logging
 import signal
 import sys
+import traceback
 import os
 from enum import Enum, unique
 from multiprocessing import Event
@@ -346,16 +347,25 @@ class HiranyaCore(object):
             for connector in self._connectors:
                 while not connector.empty():
                     message = connector.recv()
-                    if message is not None:
+                    if message is not None and message.text:
                         try:
+                            print(message)
                             doc = self._nlp(MarkovFilters.filter_input(message.text))
                             if message.learn:
                                 MarkovTrainer(self._markov_model).learn(doc)
                                 connector.send(None)
                             if message.reply:
-                                reply = connector.generate(message, doc=doc)
+                                reply = connector.generate(
+                                    message.text, 
+                                    markov_temp=message.markov_temp, 
+                                    struct_temp=message.struct_temp, 
+                                    doc=doc, 
+                                    ignore_topics=message.ignore_topics
+                                )
                                 connector.send(reply)
-                        except:
+                        except Exception as e:
+                            print(e)
+                            print(traceback.format_exc())
                             connector.send(None)
                     else:
                         connector.send(None)

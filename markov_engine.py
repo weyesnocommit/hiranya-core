@@ -236,8 +236,8 @@ class MarkovWordProjectionCollection(object):
 
         distance_magnitudes = self.distances * self.magnitudes
         sums = murgaply.sum(distance_magnitudes, axis=0)
-        #if sums == 0:
-            #sums = 1e-10
+        if sums == 0:
+            sums = 1e-10
         p_values = distance_magnitudes / sums
 
         return p_values
@@ -372,6 +372,7 @@ class MarkovTrieDb(object):
             self.last_path = path
 
     def save(self, path: str):
+        return
         # Measure the start time for serialization and compression
         start_time = time.time()
         
@@ -533,7 +534,7 @@ class MarkovGenerator(object):
         self.subjects = sorted_subjects
 
     
-    def generate(self, db: MarkovTrieDb) -> Optional[List[List[GeneratedWord]]]:
+    def generate(self, db: MarkovTrieDb, markov_temp:float) -> Optional[List[List[GeneratedWord]]]:
 
         # Try to much subject to a variety of sentence structures
         subjects_assigned = False
@@ -548,7 +549,7 @@ class MarkovGenerator(object):
         if not subjects_assigned:
             return None
 
-        if not self._generate_words(db):
+        if not self._generate_words(db, markov_temp):
             approximation = []
             for sentence in self.sentence_generations:
                 for word in sentence:
@@ -628,7 +629,7 @@ class MarkovGenerator(object):
         return work_left
 
     
-    def _generate_words(self, db: MarkovTrieDb):
+    def _generate_words(self, db: MarkovTrieDb, markov_temp: float):
 
         old_work_left = self._work_remaining()
         while True:
@@ -662,7 +663,7 @@ class MarkovGenerator(object):
                     # Choose an index based on the probability
                     choices = murgaply.arange(len(projection_collection))
 
-                    word_choice_idx = temp(p_values, temperature=MARKOV_MODEL_TEMPERATURE)
+                    word_choice_idx = temp(p_values, temperature=markov_temp)
 
                     # Select the word from the database and assign it to the blank space
                     select_word = projection_collection.keys[word_choice_idx]

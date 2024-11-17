@@ -9,14 +9,20 @@ from spacy.tokens import Doc
 from storage.armchair_expert import InputTextStatManager
 import numpy as np
 import random
-
+from config.nlp_config import MARKOV_MODEL_TEMPERATURE, STRUCTURE_MODEL_TEMPERATURE
+from config.bot_config import MISUNDERSTOOD_LIST, UNHEARD_LIST
 
 class ConnectorRecvMessage(object):
-    def __init__(self, text: str, learn: bool=False, reply=True):
+    def __init__(self, text: str, learn: bool=False, reply=True, markov_temp=MARKOV_MODEL_TEMPERATURE, struct_temp=STRUCTURE_MODEL_TEMPERATURE, ignore_topics = None):
         self.text = text
         self.learn = learn
         self.reply = reply
-
+        self.markov_temp = markov_temp
+        self.struct_temp = struct_temp
+        if ignore_topics:
+            self.ignore_topics = ignore_topics
+        else:
+            self.ignore_topics = []
 
 class ConnectorReplyGenerator(object):
     def __init__(self, markov_model: MarkovTrieDb,
@@ -28,8 +34,11 @@ class ConnectorReplyGenerator(object):
     def give_nlp(self, nlp):
         self._nlp = nlp
 
-    def generate(self, message: str, doc: Doc = None, ignore_topics: List[str] = []) -> Optional[str]:
-
+    def generate(self, message: str, markov_temp: float, struct_temp: float, doc: Doc = None, ignore_topics= None) -> Optional[str]:
+        if ignore_topics is None:
+            ignore_topics = []
+            
+        filtered_message = "Huhharabin"
         if doc is None:
             filtered_message = MarkovFilters.filter_input(message)
             doc = self._nlp(filtered_message)
@@ -43,12 +52,10 @@ class ConnectorReplyGenerator(object):
                 subjects.append(markov_word)
         if len(subjects) == 0:
             if random.randint(0,100) < 25:
-                UNHEARD_LIST = ["A<M NOTTE AM NOTTE", "AM NOT", "am not", "anti", "anti sir", "coney", "anti smiles", "am not smila", "anti smiles", "honking fish sound sir", "the breast is very loud", "fuck you die(tomato juice)", "i cool hand wiping", "shit broo", "ok pro (nots_)", "wenu wenu wenu", "mahssrseq bank alyanki you make :( ", "hope you", "make you", "HOT DEAL not", "harraq 1992 :( not rember", "yaoooooooOoooo", " ", "EAAAAAAA", "AYAAAAAAAAAAAAA"]
-                UNHEARD_RESPONSE = random.choice(UNHEARD_LIST)
-                return UNHEARD_RESPONSE
+                return random.choice(UNHEARD_LIST)
             else:
                 try:
-                    subjects = filtered_message = MarkovFilters.filter_input(message).split()
+                    subjects = filtered_message.split()
                 except Exception as e:
                     print(e)
 
@@ -60,22 +67,15 @@ class ConnectorReplyGenerator(object):
                     num_sentences = np.random.choice(choices, p=p_values)
                 else:
                     num_sentences = np.random.randint(1, 10)
-                yield self._structure_scheduler.predict(num_sentences=num_sentences)
+                yield self._structure_scheduler.predict(num_sentences=num_sentences, struct_temp=struct_temp)
 
         generator = MarkovGenerator(structure_generator=structure_generator(), subjects=subjects)
 
         reply_words = []
-        sentences = generator.generate(db=self._markov_model)
+        sentences = generator.generate(db=self._markov_model, markov_temp=markov_temp)
         #print(sentences)
         if sentences is None:
-            if random.randint(0,100) < 10:
-                MISUNDERSTOOD_LIST = ['Huh.','HuhARraq', 'uh muuhm HUHmmm', 'BOAH', 'fuoooah,,', 'yarrab!!11', 'cools']
-                MISUNDERSTOOD_REPONSE = random.choice(MISUNDERSTOOD_LIST)
-                return MISUNDERSTOOD_REPONSE
-            else:
-                MISUNDERSTOOD_LIST = ['_    _', ':emojo3:', ':ceramic:', ':ZYCOSMOKE:', ':ookae:', 'not ubderstand', ':Amnot:']
-                MISUNDERSTOOD_REPONSE = random.choice(MISUNDERSTOOD_LIST)
-                return MISUNDERSTOOD_REPONSE
+            return random.choice(MISUNDERSTOOD_LIST)
         for sentence in sentences:
             for word_idx, word in enumerate(sentence):
                 if not word.compound:
@@ -177,8 +177,8 @@ class Connector(object):
         self._scheduler.shutdown()
         self._thread.join()
 
-    def generate(self, message: str, doc: Doc=None) -> str:
-        return self._reply_generator.generate(message, doc)
+    def generate(self, message: str, markov_temp: float, struct_temp: float, doc: Doc=None, ignore_topics = None) -> str:
+        return self._reply_generator.generate(message, markov_temp, struct_temp, doc, ignore_topics)
 
     def mute(self):
         self._muted = True
