@@ -61,13 +61,7 @@ class ConnectorReplyGenerator(object):
             if markov_word is not None:
                 subjects.append(markov_word)
         if len(subjects) == 0:
-            if random.randint(0,100) < 25:
-                return random.choice(UNHEARD_LIST)
-            else:
-                try:
-                    subjects = filtered_message.split()
-                except Exception as e:
-                    print(e)
+            return random.choice(UNHEARD_LIST)
 
         def structure_generator():
             sentence_stats_manager = InputTextStatManager()
