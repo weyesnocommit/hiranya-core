@@ -236,8 +236,7 @@ class MarkovWordProjectionCollection(object):
 
         distance_magnitudes = self.distances * self.magnitudes
         sums = murgaply.sum(distance_magnitudes, axis=0)
-        if sums == 0:
-            sums = 1e-10
+        sums[sums == 0] = 1e-10
         p_values = distance_magnitudes / sums
 
         return p_values
