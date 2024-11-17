@@ -660,7 +660,7 @@ class MarkovGenerator(object):
                     p_values = all_p_values[:, blank_idx]
 
                     # Choose an index based on the probability
-                    choices = murgaply.arange(len(projection_collection))
+                    #choices = murgaply.arange(len(projection_collection))
 
                     word_choice_idx = sampling_function(p_values, sampling_config)
 
