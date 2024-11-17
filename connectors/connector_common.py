@@ -13,12 +13,22 @@ from config.nlp_config import MARKOV_MODEL_TEMPERATURE, STRUCTURE_MODEL_TEMPERAT
 from config.bot_config import MISUNDERSTOOD_LIST, UNHEARD_LIST
 
 class ConnectorRecvMessage(object):
-    def __init__(self, text: str, learn: bool=False, reply=True, markov_temp=MARKOV_MODEL_TEMPERATURE, struct_temp=STRUCTURE_MODEL_TEMPERATURE, ignore_topics = None):
+    def __init__(self, text: str, learn: bool=False, reply=True, sampling_config=None, ignore_topics = None):
         self.text = text
         self.learn = learn
         self.reply = reply
-        self.markov_temp = markov_temp
-        self.struct_temp = struct_temp
+        if not sampling_config:
+            self.sampling_config = {
+                'markov': {
+                    'strategy': 'softmax',
+                    'temperature': MARKOV_MODEL_TEMPERATURE
+                },
+                'struct': {
+                    'temperature': STRUCTURE_MODEL_TEMPERATURE
+                }
+            }
+        else:
+            self.sampling_config = sampling_config
         if ignore_topics:
             self.ignore_topics = ignore_topics
         else:
@@ -34,10 +44,10 @@ class ConnectorReplyGenerator(object):
     def give_nlp(self, nlp):
         self._nlp = nlp
 
-    def generate(self, message: str, markov_temp: float, struct_temp: float, doc: Doc = None, ignore_topics= None) -> Optional[str]:
+    def generate(self, message: str, sampling_config: dict, doc: Doc = None, ignore_topics= None) -> Optional[str]:
         if ignore_topics is None:
             ignore_topics = []
-            
+        
         filtered_message = "Huhharabin"
         if doc is None:
             filtered_message = MarkovFilters.filter_input(message)
@@ -67,12 +77,12 @@ class ConnectorReplyGenerator(object):
                     num_sentences = np.random.choice(choices, p=p_values)
                 else:
                     num_sentences = np.random.randint(1, 10)
-                yield self._structure_scheduler.predict(num_sentences=num_sentences, struct_temp=struct_temp)
+                yield self._structure_scheduler.predict(num_sentences=num_sentences, sampling_config=sampling_config['struct'])
 
         generator = MarkovGenerator(structure_generator=structure_generator(), subjects=subjects)
 
         reply_words = []
-        sentences = generator.generate(db=self._markov_model, markov_temp=markov_temp)
+        sentences = generator.generate(db=self._markov_model, sampling_config=sampling_config['markov'])
         #print(sentences)
         if sentences is None:
             return random.choice(MISUNDERSTOOD_LIST)
@@ -177,8 +187,8 @@ class Connector(object):
         self._scheduler.shutdown()
         self._thread.join()
 
-    def generate(self, message: str, markov_temp: float, struct_temp: float, doc: Doc=None, ignore_topics = None) -> str:
-        return self._reply_generator.generate(message, markov_temp, struct_temp, doc, ignore_topics)
+    def generate(self, message: str, sampling_config: dict, doc: Doc=None, ignore_topics = None) -> str:
+        return self._reply_generator.generate(message, sampling_config, doc, ignore_topics)
 
     def mute(self):
         self._muted = True

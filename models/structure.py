@@ -4,7 +4,7 @@ from typing import List, Tuple
 import numpy as np
 from spacy.tokens import Token, Doc
 
-from common.ml import MLDataPreprocessor, temp
+from common.ml import MLDataPreprocessor, sampling_function
 from common.nlp import Pos, CapitalizationMode
 from config.nlp_config import CAPITALIZATION_COMPOUND_RULES, STRUCTURE_MODEL_TRAINING_MAX_SIZE, \
 	STRUCTURE_MODEL_TEMPERATURE, MAX_SEQUENCE_LEN
@@ -146,7 +146,7 @@ class StructureModel(object):
 		)
 
 	#TODOCAL: conditionally generation base on inputka
-	def predict(self, num_sentences: int, struct_temp: float) -> List[PoSCapitalizationMode]:
+	def predict(self, num_sentences: int, sampling_config: dict) -> List[PoSCapitalizationMode]:
 		predictions = []
 		sequence = [[0]]
 		eos_count = 0
@@ -155,7 +155,7 @@ class StructureModel(object):
 		while eos_count < num_sentences:
 			padded_sequence = self.pad_sequences(sequence, maxlen=StructureModel.SEQUENCE_LENGTH, padding='post')
 			prediction = self.model.predict(padded_sequence, batch_size=1, verbose=0)[0]
-			index = temp(prediction, struct_temp)
+			index = sampling_function(prediction, sampling_config)
 			if PoSCapitalizationMode.from_embedding(index).pos == Pos.EOS:
 				eos_count += 1
 			predictions.append(index)
@@ -186,8 +186,8 @@ class StructureModelWorker(MLModelWorker):
 		self._model = StructureModel(use_gpu=self._use_gpu)
 		MLModelWorker.run(self)
 
-	def predict(self, *data, struct_temp) -> List[PoSCapitalizationMode]:
-		return self._model.predict(num_sentences=data[0][0], struct_temp=struct_temp)
+	def predict(self, *data, sampling_config) -> List[PoSCapitalizationMode]:
+		return self._model.predict(num_sentences=data[0][0], sampling_config=sampling_config)
 
 	def train(self, *data):
 		return self._model.train(data=data[0][0], labels=data[0][1], epochs=data[0][2])
@@ -205,8 +205,8 @@ class StructureModelScheduler(MLModelScheduler):
 		self._worker = StructureModelWorker(read_queue=self._write_queue, write_queue=self._read_queue,
 											use_gpu=use_gpu)
 
-	def predict(self, num_sentences: int, struct_temp: float):
-		return self._predict(num_sentences, struct_temp=struct_temp)
+	def predict(self, num_sentences: int, sampling_config: dict):
+		return self._predict(num_sentences, sampling_config=sampling_config)
 
 	def train(self, data, labels, epochs=1):
 		return self._train(data, labels, epochs)

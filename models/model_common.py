@@ -14,8 +14,8 @@ class MLModelScheduler(object):
     def shutdown(self):
         self._write_queue.put([MLWorkerCommands.SHUTDOWN, None])
 
-    def _predict(self, *data, struct_temp):
-        self._write_queue.put([MLWorkerCommands.PREDICT, data, struct_temp])
+    def _predict(self, *data, sampling_config):
+        self._write_queue.put([MLWorkerCommands.PREDICT, data, sampling_config])
         return self._read_queue.get()
 
     def _train(self, *data):
@@ -47,7 +47,7 @@ class MLModelWorker(Process):
             if command == MLWorkerCommands.SHUTDOWN:
                 return
             elif command == MLWorkerCommands.PREDICT:
-                self._write_queue.put(self.predict(data, struct_temp=vals[2]))
+                self._write_queue.put(self.predict(data, sampling_config=vals[2]))
             elif command == MLWorkerCommands.TRAIN:
                 self._write_queue.put(self.train(data))
             elif command == MLWorkerCommands.SAVE:

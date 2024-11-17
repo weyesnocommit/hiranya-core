@@ -12,7 +12,7 @@ from spacy.tokens import Doc, Span, Token
 from config.nlp_config import MARKOV_WINDOW_SIZE, MARKOV_GENERATION_WEIGHT_COUNT, MARKOV_GENERATION_WEIGHT_RATING, \
     MARKOV_GENERATE_SUBJECT_POS_PRIORITY, MARKOV_GENERATE_SUBJECT_MAX, \
     CAPITALIZATION_COMPOUND_RULES, MARKOV_MODEL_TEMPERATURE
-from common.ml import one_hot, temp
+from common.ml import one_hot, sampling_function
 from common.nlp import Pos, CapitalizationMode
 
 MARKOV_GENERATE_SUBJECT_POS_PRIORITY_ = [
@@ -533,7 +533,7 @@ class MarkovGenerator(object):
         self.subjects = sorted_subjects
 
     
-    def generate(self, db: MarkovTrieDb, markov_temp:float) -> Optional[List[List[GeneratedWord]]]:
+    def generate(self, db: MarkovTrieDb, sampling_config: dict) -> Optional[List[List[GeneratedWord]]]:
 
         # Try to much subject to a variety of sentence structures
         subjects_assigned = False
@@ -548,7 +548,7 @@ class MarkovGenerator(object):
         if not subjects_assigned:
             return None
 
-        if not self._generate_words(db, markov_temp):
+        if not self._generate_words(db, sampling_config):
             approximation = []
             for sentence in self.sentence_generations:
                 for word in sentence:
@@ -628,7 +628,7 @@ class MarkovGenerator(object):
         return work_left
 
     
-    def _generate_words(self, db: MarkovTrieDb, markov_temp: float):
+    def _generate_words(self, db: MarkovTrieDb, sampling_config: dict):
 
         old_work_left = self._work_remaining()
         while True:
@@ -662,7 +662,7 @@ class MarkovGenerator(object):
                     # Choose an index based on the probability
                     choices = murgaply.arange(len(projection_collection))
 
-                    word_choice_idx = temp(p_values, temperature=markov_temp)
+                    word_choice_idx = sampling_function(p_values, sampling_config)
 
                     # Select the word from the database and assign it to the blank space
                     select_word = projection_collection.keys[word_choice_idx]

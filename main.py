@@ -357,8 +357,7 @@ class HiranyaCore(object):
                             if message.reply:
                                 reply = connector.generate(
                                     message.text, 
-                                    markov_temp=message.markov_temp, 
-                                    struct_temp=message.struct_temp, 
+                                    message.sampling_config,
                                     doc=doc, 
                                     ignore_topics=message.ignore_topics
                                 )
