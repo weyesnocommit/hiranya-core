@@ -371,7 +371,6 @@ class MarkovTrieDb(object):
             self.last_path = path
 
     def save(self, path: str):
-        return
         # Measure the start time for serialization and compression
         start_time = time.time()
         
@@ -607,7 +606,6 @@ class MarkovGenerator(object):
                             subject, self.sentence_structures[sentence_idx][word_idx].mode)
                         sentences_assigned[sentence_idx] = True
                         break
-
                 if word_break:
                     break
 
@@ -666,6 +664,7 @@ class MarkovGenerator(object):
 
                     # Select the word from the database and assign it to the blank space
                     select_word = projection_collection.keys[word_choice_idx]
+                    #print(projection_collection.keys)
                     word = GeneratedWord.from_markov_word(db.select(select_word),
                                                           self.sentence_structures[sentence_idx][blank_idx].mode)
                     self.sentence_generations[sentence_idx][blank_idx] = word

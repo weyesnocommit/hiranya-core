@@ -1,10 +1,3 @@
-import logging
-
-# --- "Isticmaal" Qaybta Walxaha ---
-
-# Deji diiwaanka / hadalka
-ARMCHAIR_EXPERT_LOGLEVEL = logging.INFO
-
 # --- Qaybta Qalabka Farsamada ---
 
 # Ku kaydi xogta tababarka halkan

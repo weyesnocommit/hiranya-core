@@ -10,7 +10,7 @@ from enum import Enum, unique
 from multiprocessing import Event
 #import numpy as np
 from common.nlp import create_nlp_instance, SpacyPreprocessor
-from config.db_config import ARMCHAIR_EXPERT_LOGLEVEL
+from config.bot_config import ARMCHAIR_EXPERT_LOGLEVEL
 from config.nlp_config import USE_GPU, STRUCTURE_MODEL_PATH, MARKOV_DB_PATH, STRUCTURE_MODEL_TRAINING_MAX_SIZE, MARKOV_MODEL_MAX_PREPROCESSING_SIZE
 from markov_engine import MarkovTrieDb, MarkovTrainer, MarkovFilters
 from models.structure import StructureModelScheduler, StructurePreprocessor
@@ -349,7 +349,6 @@ class HiranyaCore(object):
                     message = connector.recv()
                     if message is not None and message.text:
                         try:
-                            print(message)
                             doc = self._nlp(MarkovFilters.filter_input(message.text))
                             if message.learn:
                                 MarkovTrainer(self._markov_model).learn(doc)
