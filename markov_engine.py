@@ -353,8 +353,7 @@ import os
 import json
 import io
 import gc
-import dill
-
+import pickle
 class MarkovTrieDb(object):
     WORD_KEY = '_W'
     NEIGHBORS_KEY = '_N'
@@ -374,7 +373,7 @@ class MarkovTrieDb(object):
         # Measure the start time for serialization and compression
         start_time = time.time()
         
-        serialized_data = dill.dumps(self._trie)
+        serialized_data = pickle.dumps(self._trie, protocol=pickle.HIGHEST_PROTOCOL)
         serialization_time = time.time()
         
         compressed_data = zlib.compress(serialized_data)
@@ -400,43 +399,13 @@ class MarkovTrieDb(object):
         print(f"Compression time: {compression_time - serialization_time:.4f} seconds")
         print(f"Writing time: {writing_time - compression_time:.4f} seconds")
         
-    
-    def save__(self, path: str):
-
-        with open(f"{path}.tmp.zlib", "wb", buffering=io.DEFAULT_BUFFER_SIZE) as f:
-            f.write(zlib.compress(dill.dumps(self._trie)))
-            
-        freshly_experienced = os.path.getsize(f"{path}.tmp.zlib")
-        try:
-            stale_expereienced = os.path.getsize(f"{path}.zlib")
-            if freshly_experienced > stale_expereienced:
-                os.replace(f"{path}.tmp.zlib", f"{path}.zlib")
-            else:
-                print("ANTI SAFE ANTI SFAEF")
-        except:
-            os.replace(f"{path}.tmp.zlib", f"{path}.zlib")
-        #print("Sizeka of trie oky", asizeof(self._trie))
-        return        
-
-    def load_JSON(self, path: str):
-        if self.loaded:
-            print("LOADED ALRAREA")
-            return
-        
-        with open(f"./weights/JSON.zlib", "rb") as f:
-            data = zlib.decompress(f.read()).decode()
-            self._trie = json.loads(data)
-            
-        print(asizeof(self._trie))
-        return
-
     def load(self, path: str):
         if self.loaded:
             print("LOADED ALRAREA")
             return
         
         with open(f"{path}.zlib", "rb") as f:
-            self._trie = dill.loads(zlib.decompress(f.read()))
+            self._trie = pickle.loads(zlib.decompress(f.read()))
         gc.collect()
         #print(asizeof(self._trie))
         return

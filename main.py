@@ -294,7 +294,7 @@ class HiranyaCore(object):
             for sent in doc.sents:
                 sents += 1
             input_text_stats_manager.log_length(length=sents)
-
+        self._logger.info("Training(Markov): 100.00%")
         if len(docs) > 0:
             self._markov_model.save(MARKOV_DB_PATH)
             input_text_stats_manager.commit()
