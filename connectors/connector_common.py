@@ -1,4 +1,4 @@
-from markov_engine import MarkovTrieDb, MarkovFilters, MarkovGenerator
+from markov_engine import MarkovTrieDb, MarkovFilters, MarkovGenerator, MarkovGeneratorBERT
 from models.structure import StructureModelScheduler
 from common.nlp import CapitalizationMode
 from typing import Optional, List
@@ -36,18 +36,29 @@ class ConnectorRecvMessage(object):
 
 class ConnectorReplyGenerator(object):
     def __init__(self, markov_model: MarkovTrieDb,
-                 structure_scheduler: StructureModelScheduler):
+                 structure_scheduler: StructureModelScheduler = None,
+                 use_bert: bool = False):  # Toggle for BERT
         self._markov_model = markov_model
         self._structure_scheduler = structure_scheduler
         self._nlp = None
+        self._use_bert = use_bert  # Toggle between LSTM and BERT
 
     def give_nlp(self, nlp):
         self._nlp = nlp
 
-    def generate(self, message: str, sampling_config: dict, doc: Doc = None, ignore_topics= None) -> Optional[str]:
+    def generate(self, message: str, sampling_config: dict, doc: Doc = None, ignore_topics=None) -> Optional[str]:
         if ignore_topics is None:
             ignore_topics = []
-        
+        print(sampling_config)
+        if self._use_bert:
+            # BERT-based generation (no structure generator or NLP preprocessing needed)
+            return self._generate_with_bert(message, sampling_config)
+        else:
+            # LSTM-based generation (uses structure generator and NLP preprocessing)
+            return self._generate_with_lstm(message, sampling_config, doc, ignore_topics)
+
+    def _generate_with_lstm(self, message: str, sampling_config: dict, doc: Doc = None, ignore_topics= None) -> Optional[str]:
+        """Generate a reply using the LSTM-based approach."""
         filtered_message = "Huhharabin"
         if doc is None:
             filtered_message = MarkovFilters.filter_input(message)
@@ -77,9 +88,9 @@ class ConnectorReplyGenerator(object):
 
         reply_words = []
         sentences = generator.generate(db=self._markov_model, sampling_config=sampling_config['markov'])
-        #print(sentences)
         if sentences is None:
             return random.choice(MISUNDERSTOOD_LIST)
+
         for sentence in sentences:
             for word_idx, word in enumerate(sentence):
                 if not word.compound:
@@ -89,9 +100,20 @@ class ConnectorReplyGenerator(object):
                 reply_words.append(text)
 
         reply = " ".join(reply_words)
-        filtered_reply = MarkovFilters.smooth_output(reply)
+        return MarkovFilters.smooth_output(reply)
 
-        return filtered_reply
+    def _generate_with_bert(self, message: str, sampling_config: dict) -> Optional[str]:
+        """Generate a reply using BERT embeddings."""
+        sampling_config = sampling_config['markov']
+        # Use BERT to guide the generation process
+        generator = MarkovGeneratorBERT()  # No need for subjects in BERT mode
+        reply_words = generator.generate_with_bert(db=self._markov_model, sampling_config=sampling_config, context=message)
+
+        if not reply_words:
+            return random.choice(MISUNDERSTOOD_LIST)
+
+        reply = " ".join(reply_words)
+        return MarkovFilters.smooth_output(reply)
 
 
 class ConnectorWorker(Process):
