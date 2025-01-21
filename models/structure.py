@@ -40,7 +40,7 @@ class StructurePreprocessor(MLDataPreprocessor):
 		MLDataPreprocessor.__init__(self, 'StructurePreprocessor')
 
 	def get_preprocessed_data(self) -> Tuple:
-		from keras.preprocessing.sequence import pad_sequences
+		#from keras.preprocessing.sequence import pad_sequences
 		structure_data = pad_sequences(self.data, StructureModel.SEQUENCE_LENGTH, padding='post')
 		structure_labels = np.array(self.labels)
 		return structure_data, structure_labels
@@ -146,7 +146,7 @@ class StructureModel:
 		).to(self.device)
 		self.pad_sequences = pad_sequences
 
-	def train(self, data, labels, epochs=1, validation_split=0.2):
+	def train(self, data, labels, epochs=1, validation_split=0.2, batch_size=32):
 		val_size = int(len(data) * validation_split)
 		indices = np.arange(len(data))
 		np.random.shuffle(indices)
@@ -156,23 +156,51 @@ class StructureModel:
 		train_data, val_data = data[train_indices], data[val_indices]
 		train_labels, val_labels = labels[train_indices], labels[val_indices]
 
-		train_data = torch.tensor(train_data, dtype=torch.long).to(self.device)
-		train_labels = torch.tensor(train_labels, dtype=torch.long).to(self.device)
-		val_data = torch.tensor(val_data, dtype=torch.long).to(self.device)
-		val_labels = torch.tensor(val_labels, dtype=torch.long).to(self.device)
-
 		optimizer = torch.optim.Adam(self.model.parameters())
 		criterion = nn.CrossEntropyLoss()
 
 		for epoch in range(epochs):
 			self.model.train()
-			optimizer.zero_grad()
-			outputs = self.model(train_data)
-			loss = criterion(outputs, train_labels)
-			loss.backward()
-			optimizer.step()
+			epoch_loss = 0.0
 
-			print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss.item()}")
+			# Training loop
+			for i in range(0, len(train_data), batch_size):
+				batch_data = train_data[i:i + batch_size]
+				batch_labels = train_labels[i:i + batch_size]
+
+				# Move batch to device
+				batch_data = torch.tensor(batch_data, dtype=torch.long).to(self.device)
+				batch_labels = torch.tensor(batch_labels, dtype=torch.long).to(self.device)
+
+				optimizer.zero_grad()
+				outputs = self.model(batch_data)
+				loss = criterion(outputs, batch_labels)
+				loss.backward()
+				optimizer.step()
+
+				epoch_loss += loss.item()
+
+			avg_epoch_loss = epoch_loss / (len(train_data) / batch_size)
+			print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_epoch_loss}")
+
+			# Validation loop (optional, can also be batched)
+			self.model.eval()
+			val_loss = 0.0
+			with torch.no_grad():
+				for i in range(0, len(val_data), batch_size):
+					batch_data = val_data[i:i + batch_size]
+					batch_labels = val_labels[i:i + batch_size]
+
+					# Move batch to device
+					batch_data = torch.tensor(batch_data, dtype=torch.long).to(self.device)
+					batch_labels = torch.tensor(batch_labels, dtype=torch.long).to(self.device)
+
+					outputs = self.model(batch_data)
+					loss = criterion(outputs, batch_labels)
+					val_loss += loss.item()
+
+			avg_val_loss = val_loss / (len(val_data) / batch_size)
+			print(f"Epoch {epoch + 1}/{epochs}, Validation Loss: {avg_val_loss}")
 
 	def predict(self, num_sentences: int, sampling_config: dict) -> List[PoSCapitalizationMode]:
 		self.model.eval()
@@ -186,7 +214,7 @@ class StructureModel:
 		recent_tokens = []  # Track recent tokens to penalize repetition
 		max_repeats = 3  # Maximum allowed repeats for a token
 		min_unique_ratio = 0.3  # Minimum unique token ratio to detect low diversity
-
+		print("NEW HUHHARAQING")
 		while eos_count < num_sentences and idx < max_iterations:
 			padded_sequence = self.pad_sequences(sequence, maxlen=StructureModel.SEQUENCE_LENGTH, padding='post')
 			
