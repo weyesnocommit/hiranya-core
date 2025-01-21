@@ -9,7 +9,7 @@ USE_GPU = True
 # Paths
 MARKOV_DB_PATH = 'weights/markov'
 REACTION_MODEL_PATH = "weights/aol-reaction-model.h5"
-STRUCTURE_MODEL_PATH = "weights/structure-model.weights.h5"
+STRUCTURE_MODEL_PATH = "weights/pytorch_model.pth" #"weights/structure-model.weights.h5"
 
 MARKOV_GENERATE_SUBJECT_MAX = 1000000
 # Greatest to least

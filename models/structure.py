@@ -1,7 +1,6 @@
 from multiprocessing import Queue
 from typing import List, Tuple
 
-import numpy as np
 from spacy.tokens import Token, Doc
 
 from common.ml import MLDataPreprocessor, sampling_function
@@ -10,6 +9,31 @@ from config.nlp_config import CAPITALIZATION_COMPOUND_RULES, STRUCTURE_MODEL_TRA
 	STRUCTURE_MODEL_TEMPERATURE, MAX_SEQUENCE_LEN
 from models.model_common import MLModelScheduler, MLModelWorker
 
+
+import torch
+import torch.nn as nn
+import numpy as np
+#from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+import torch
+import torch.nn.functional as F
+
+def pad_sequences(sequences, maxlen, padding='post', value=0):
+	# Convert sequences to a list of tensors if they aren't already
+	sequences = [torch.tensor(seq, dtype=torch.long) for seq in sequences]
+	
+	# Create a tensor of shape (num_sequences, maxlen) filled with the padding value
+	padded_sequences = torch.full((len(sequences), maxlen), value, dtype=torch.long)
+	
+	for i, seq in enumerate(sequences):
+		if padding == 'post':
+			padded_sequences[i, :len(seq)] = seq
+		elif padding == 'pre':
+			padded_sequences[i, -len(seq):] = seq
+		else:
+			raise ValueError("Padding type {} not understood".format(padding))
+	
+	return padded_sequences
 
 class StructurePreprocessor(MLDataPreprocessor):
 	def __init__(self):
@@ -67,13 +91,14 @@ class StructurePreprocessor(MLDataPreprocessor):
 		return True
 
 
-class PoSCapitalizationMode(object):
+
+class PoSCapitalizationMode:
 	def __init__(self, pos: Pos, mode: CapitalizationMode):
 		self.pos = pos
 		self.mode = mode
 
 	def __repr__(self):
-		return str(self.pos).split(".")[1] + "_" + str(self.mode).split(".")[1]
+		return f"{self.pos.name}_{self.mode.name}"
 
 	def to_embedding(self) -> int:
 		return self.pos.value * len(CapitalizationMode) + self.mode.value
@@ -84,97 +109,125 @@ class PoSCapitalizationMode(object):
 		mode_part = int(embedding % len(CapitalizationMode))
 		return PoSCapitalizationMode(Pos(pos_part), CapitalizationMode(mode_part))
 
-
-class StructureFeatureAnalyzer(object):
+class StructureFeatureAnalyzer:
 	NUM_FEATURES = len(Pos) * len(CapitalizationMode)
 
 	@staticmethod
-	def analyze(token: Token, mode: CapitalizationMode):
+	def analyze(token, mode: CapitalizationMode):
 		pos = Pos.from_token(token)
 		mode = PoSCapitalizationMode(pos, mode)
 		return mode.to_embedding()
 
+class PyTorchModel(nn.Module):
+	def __init__(self, num_features, latent_dim, sequence_length):
+		super(PyTorchModel, self).__init__()
+		self.embedding = nn.Embedding(num_features, num_features)
+		self.lstm = nn.LSTM(num_features, latent_dim, batch_first=True, dropout=0)
+		self.dense = nn.Linear(latent_dim, num_features)
+		self.softmax = nn.Softmax(dim=1)
 
+	def forward(self, x):
+		x = self.embedding(x)
+		x, _ = self.lstm(x)
+		x = self.dense(x[:, -1, :])  # Use the last output of the sequence
+		x = self.softmax(x)
+		return x
 
-
-class StructureModel(object):
+class StructureModel:
 	SEQUENCE_LENGTH = MAX_SEQUENCE_LEN
 
- 
 	def __init__(self, use_gpu: bool = False):
-		import tensorflow as tf
-		from tensorflow.keras.models import Sequential
-		from tensorflow.keras.layers import Dense, Embedding, LSTM
-		from typing import List
-		from tensorflow.keras.preprocessing.sequence import pad_sequences
-		self.pad_sequences = pad_sequences
-  
+		self.device = torch.device("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
 		latent_dim = StructureModel.SEQUENCE_LENGTH * 16
-
-		with tf.device('/gpu:0' if use_gpu else '/cpu:0'):
-			model = Sequential([
-				Embedding(StructureFeatureAnalyzer.NUM_FEATURES, StructureFeatureAnalyzer.NUM_FEATURES),
-				LSTM(latent_dim, dropout=0.2, return_sequences=False),
-				Dense(StructureFeatureAnalyzer.NUM_FEATURES, activation='softmax')
-			])
-
-			model.build(input_shape=(None, StructureModel.SEQUENCE_LENGTH))
-			model.summary()
-			model.compile(loss='sparse_categorical_crossentropy', optimizer='adam')
-			self.model = model
+		self.model = PyTorchModel(
+			num_features=StructureFeatureAnalyzer.NUM_FEATURES,
+			latent_dim=latent_dim,
+			sequence_length=StructureModel.SEQUENCE_LENGTH
+		).to(self.device)
+		self.pad_sequences = pad_sequences
 
 	def train(self, data, labels, epochs=1, validation_split=0.2):
 		val_size = int(len(data) * validation_split)
-		
 		indices = np.arange(len(data))
 		np.random.shuffle(indices)
-		
 		val_indices = indices[:val_size]
 		train_indices = indices[val_size:]
-		
+
 		train_data, val_data = data[train_indices], data[val_indices]
 		train_labels, val_labels = labels[train_indices], labels[val_indices]
 
-		print(train_data[0], train_labels[0])
-		
-		self.model.fit(
-			train_data,
-			train_labels,
-			epochs=epochs,
-			batch_size=32,
-			validation_data=(val_data, val_labels)
-		)
+		train_data = torch.tensor(train_data, dtype=torch.long).to(self.device)
+		train_labels = torch.tensor(train_labels, dtype=torch.long).to(self.device)
+		val_data = torch.tensor(val_data, dtype=torch.long).to(self.device)
+		val_labels = torch.tensor(val_labels, dtype=torch.long).to(self.device)
 
-	#TODOCAL: conditionally generation base on inputka
+		optimizer = torch.optim.Adam(self.model.parameters())
+		criterion = nn.CrossEntropyLoss()
+
+		for epoch in range(epochs):
+			self.model.train()
+			optimizer.zero_grad()
+			outputs = self.model(train_data)
+			loss = criterion(outputs, train_labels)
+			loss.backward()
+			optimizer.step()
+
+			print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss.item()}")
+
 	def predict(self, num_sentences: int, sampling_config: dict) -> List[PoSCapitalizationMode]:
+		self.model.eval()
 		predictions = []
 		sequence = [[0]]
 		eos_count = 0
-
 		idx = 0
-		while eos_count < num_sentences:
+		max_iterations = 100
+		temperature_increase_step = 0.1
+		max_temperature = 2.0
+
+		while eos_count < num_sentences and idx < max_iterations:
 			padded_sequence = self.pad_sequences(sequence, maxlen=StructureModel.SEQUENCE_LENGTH, padding='post')
-			prediction = self.model.predict(padded_sequence, batch_size=1, verbose=0)[0]
+			
+			if not isinstance(padded_sequence, torch.Tensor):
+				padded_sequence = torch.tensor(padded_sequence, dtype=torch.long, device=self.device)
+			else:
+				padded_sequence = padded_sequence.to(self.device)
+
+			with torch.no_grad():
+				prediction = self.model(padded_sequence).cpu().numpy()[0]
+
 			index = sampling_function(prediction, sampling_config)
+			predictions.append(index)
+
 			if PoSCapitalizationMode.from_embedding(index).pos == Pos.EOS:
 				eos_count += 1
-			predictions.append(index)
-			sequence[0].append(index)
-			sequence[0] = sequence[0][-StructureModel.SEQUENCE_LENGTH:]
-			idx = idx + 1
-			#if idx > 25:
-				#print("[structure] XDD TOO MANY TIRES")
-				#break
 
+			sequence[0].append(index)
+			sequence[0] = sequence[0][-StructureModel.SEQUENCE_LENGTH:]  # Keep the sequence within the max length
+
+			idx += 1  
+			if idx > 25 and eos_count == 0:
+				#print("[structure] XDD TOO MANY TIRES - Increasing temperature to encourage diversity")
+				sampling_config['temperature'] = min(
+					sampling_config['temperature'] + temperature_increase_step,
+					max_temperature
+				)
+			if idx > 50:
+				print("[structure] Injecting randomness to break the loop")
+				random_index = np.random.randint(0, len(sequence[0]))
+				sequence[0][random_index] = np.random.randint(0, StructureFeatureAnalyzer.NUM_FEATURES)
+			if idx > 100:
+				break
+
+		# Convert the predictions to PoSCapitalizationMode objects
 		modes = [PoSCapitalizationMode.from_embedding(embedding) for embedding in predictions]
-		#print(modes)
 		return modes
 
 	def load(self, path):
-		self.model.load_weights(path)
+		self.model.load_state_dict(torch.load(path, map_location=self.device))
+		self.model.to(self.device)
 
 	def save(self, path):
-		self.model.save_weights(path)
+		torch.save(self.model.state_dict(), path)
 
 class StructureModelWorker(MLModelWorker):
 	def __init__(self, read_queue: Queue, write_queue: Queue, use_gpu: bool = False):
