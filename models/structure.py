@@ -177,12 +177,15 @@ class StructureModel:
 	def predict(self, num_sentences: int, sampling_config: dict) -> List[PoSCapitalizationMode]:
 		self.model.eval()
 		predictions = []
-		sequence = [[0]]
-		eos_count = 0
-		idx = 0
-		max_iterations = 100
-		temperature_increase_step = 0.1
-		max_temperature = 2.0
+		sequence = [[0]]  # Start with a single token (e.g., start token)
+		eos_count = 0  # Counter for end-of-sentence tokens
+		idx = 0  # Iteration counter
+		max_iterations = 200  # Increased max iterations for more flexibility
+		temperature_increase_step = 0.1  # Step size for temperature adjustment
+		max_temperature = 2.0  # Maximum temperature to avoid completely random outputs
+		recent_tokens = []  # Track recent tokens to penalize repetition
+		max_repeats = 3  # Maximum allowed repeats for a token
+		min_unique_ratio = 0.3  # Minimum unique token ratio to detect low diversity
 
 		while eos_count < num_sentences and idx < max_iterations:
 			padded_sequence = self.pad_sequences(sequence, maxlen=StructureModel.SEQUENCE_LENGTH, padding='post')
@@ -195,8 +198,12 @@ class StructureModel:
 			with torch.no_grad():
 				prediction = self.model(padded_sequence).cpu().numpy()[0]
 
+			for token in recent_tokens[-max_repeats:]:
+				prediction[token] *= 0.5  # Reduce the probability of repeated tokens
+
 			index = sampling_function(prediction, sampling_config)
 			predictions.append(index)
+			recent_tokens.append(index)
 
 			if PoSCapitalizationMode.from_embedding(index).pos == Pos.EOS:
 				eos_count += 1
@@ -204,23 +211,36 @@ class StructureModel:
 			sequence[0].append(index)
 			sequence[0] = sequence[0][-StructureModel.SEQUENCE_LENGTH:]  # Keep the sequence within the max length
 
-			idx += 1  
+			idx += 1
 			if idx > 25 and eos_count == 0:
-				#print("[structure] XDD TOO MANY TIRES - Increasing temperature to encourage diversity")
+				print("[structure] XDD TOO MANY TIRES - Increasing temperature to encourage diversity")
 				sampling_config['temperature'] = min(
 					sampling_config['temperature'] + temperature_increase_step,
 					max_temperature
 				)
-			if idx > 50:
+
+			if idx > 50 and eos_count == 0:
 				print("[structure] Injecting randomness to break the loop")
 				random_index = np.random.randint(0, len(sequence[0]))
 				sequence[0][random_index] = np.random.randint(0, StructureFeatureAnalyzer.NUM_FEATURES)
-			if idx > 100:
+
+			if idx > 75 and eos_count == 0:
+				print("[structure] Falling back to greedy sampling to break the loop")
+				sampling_config['temperature'] = 0.0  # Greedy sampling (always pick the most likely token)
+
+			unique_tokens = set(predictions)
+			unique_ratio = len(unique_tokens) / len(predictions)
+			if unique_ratio < min_unique_ratio:
+				print("[structure] Low diversity detected - Stopping early")
 				break
 
-		# Convert the predictions to PoSCapitalizationMode objects
+			if idx >= max_iterations:
+				print("[structure] Max iterations reached - Stopping early")
+				break
+
 		modes = [PoSCapitalizationMode.from_embedding(embedding) for embedding in predictions]
 		return modes
+
 
 	def load(self, path):
 		self.model.load_state_dict(torch.load(path, map_location=self.device))
