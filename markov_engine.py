@@ -370,7 +370,6 @@ class MarkovTrieDb(object):
             self.last_path = path
 
     def save(self, path: str):
-        # Measure the start time for serialization and compression
         start_time = time.time()
         
         serialized_data = pickle.dumps(self._trie, protocol=pickle.HIGHEST_PROTOCOL)
@@ -394,7 +393,6 @@ class MarkovTrieDb(object):
         except:
             os.replace(f"{path}.tmp.zlib", f"{path}.zlib")
 
-        # Print out the time taken for each step
         print(f"Serialization time: {serialization_time - start_time:.4f} seconds")
         print(f"Compression time: {compression_time - serialization_time:.4f} seconds")
         print(f"Writing time: {writing_time - compression_time:.4f} seconds")
@@ -441,6 +439,7 @@ class MarkovTrieDb(object):
 
     
     def _insert(self, word: str, pos: int, compound: bool, neighbors: dict) -> Optional[dict]:
+        start_time = time.time()  # Start timing
 
         node = self._trie
         if word.lower() in node:
@@ -451,30 +450,46 @@ class MarkovTrieDb(object):
 
         node[MarkovTrieDb.WORD_KEY] = {WordKey.TEXT: word, WordKey.POS: pos, WordKey.COMPOUND: compound}
         node[MarkovTrieDb.NEIGHBORS_KEY] = neighbors
+
+        end_time = time.time()  # End timing
+        #print(f"Insert took {end_time - start_time} seconds")
         return node
 
-    
     def insert(self, word: MarkovWord) -> MarkovWord:
+        start_time = time.time()  # Start timing
+
         row = self._insert(word.text, word.pos.value, word.compound, word.neighbors)
         # word: { wordkey: {dict}, neighborkey: {word1: [vector], ...}}
-        return MarkovWord.from_db_format(row) if row is not None else None
+        result = MarkovWord.from_db_format(row) if row is not None else None
+        end_time = time.time()  # End timing
+        #print(f"Insert (including from_db_format) took {end_time - start_time} seconds")
+        return result
 
-    
     def _update(self, word: str, pos: int, compound: bool, neighbors: dict) -> Optional[dict]:
+        start_time = time.time()  # Start timing
+
         node = self._select(word)
         if node is None:
+            end_time = time.time()  # End timing
+            #print(f"Update took {end_time - start_time} seconds")
             return None
 
         node[MarkovTrieDb.WORD_KEY] = {WordKey.TEXT: word, WordKey.POS: pos, WordKey.COMPOUND: compound}
         node[MarkovTrieDb.NEIGHBORS_KEY] = neighbors
+
+        end_time = time.time()  # End timing
+        #print(f"Update took {end_time - start_time} seconds")
         return node
 
-    
     def update(self, word: MarkovWord) -> Optional[MarkovWord]:
+        start_time = time.time()  # Start timing
+
         node = self._update(word.text, word.pos.value, word.compound, word.neighbors)
         # word: { wordkey: {dict}, neighborkey: {word1: [vector], ...}}
-        return MarkovWord.from_db_format(node) if node is not None else None
-
+        result = MarkovWord.from_db_format(node) if node is not None else None
+        end_time = time.time()  # End timing
+        #print(f"Update (including from_db_format) took {end_time - start_time} seconds")
+        return result
 
 
 class MarkovGenerator(object):
