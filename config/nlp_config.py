@@ -66,7 +66,7 @@ MARKOV_WINDOW_SIZE = 6
 CAPITALIZATION_COMPOUND_RULES = ['RT']
 
 # Maximum number of sequences to train the structure model on
-STRUCTURE_MODEL_TRAINING_MAX_SIZE = 20000000
+STRUCTURE_MODEL_TRAINING_MAX_SIZE = 1000000
 MARKOV_MODEL_MAX_PREPROCESSING_SIZE = 250000
 # Lower values make things more predictable, higher ones more random
 STRUCTURE_MODEL_TEMPERATURE = 0.7
