@@ -7,6 +7,16 @@ from enum import unique, Enum
 from typing import Optional, List
 from pympler.asizeof import asizeof
 import numpy as murgaply
+#from transformers import BertTokenizer, BertModel
+#tokenizer = BertTokenizer.from_pretrained("gaunernst/bert-tiny-uncased") #'bert-base-uncased')stsb-bert-tiny-safetensors
+#model = BertModel.from_pretrained("gaunernst/bert-tiny-uncased") #'bert-base-uncased')stsb-bert-tiny-safetensors
+from transformers import AutoTokenizer, AutoModel
+import torch
+import numpy as np
+
+tokenizer = AutoTokenizer.from_pretrained("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+model = AutoModel.from_pretrained("sentence-transformers-testing/stsb-bert-tiny-safetensors")
+
 from spacy.tokens import Doc, Span, Token
 
 from config.nlp_config import MARKOV_WINDOW_SIZE, MARKOV_GENERATION_WEIGHT_COUNT, MARKOV_GENERATION_WEIGHT_RATING, \
@@ -490,6 +500,164 @@ class MarkovTrieDb(object):
         end_time = time.time()  # End timing
         #print(f"Update (including from_db_format) took {end_time - start_time} seconds")
         return result
+
+
+class MarkovGeneratorBERT:
+    def __init__(self):
+        self.embedding_cache = {}  # Cache for BERT embeddings
+
+    def generate_with_bert(self, db: MarkovTrieDb, sampling_config: dict, context: str) -> List[str]:
+        """Generate a reply using BERT embeddings and the Markov trie DB."""
+        # Tokenize the context
+        inputs = tokenizer(context, return_tensors='pt', truncation=True, padding=True)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        context_embedding = outputs.last_hidden_state.mean(dim=1)
+
+        # Start with a seed word (e.g., the last word in the context)
+        seed_word = context.split()[-1].lower()  # Simple heuristic; replace with better logic if needed
+        current_word = seed_word
+        reply_words = []
+
+        for _ in range(sampling_config.get('max_length', 20)):  # Adjust max_length as needed
+            # Fetch the current word's MarkovWord object
+            current_markov_word = db.select(current_word)
+            if current_markov_word is None:
+                break  # No more words to explore
+
+            # Fetch neighbors of the current word
+            neighbors = current_markov_word.select_neighbors(pos=None)  # Fetch all neighbors
+            if len(neighbors) == 0:
+                break  # No more neighbors to explore
+
+            # Pre-filter neighbors to reduce the candidate pool
+            filtered_neighbors = self._pre_filter_neighbors(neighbors, sampling_config)
+            if len(filtered_neighbors) == 0:
+                break  # No candidates after filtering
+
+            # Fetch neighbors and compute BERT embeddings
+            neighbor_embeddings = self._get_bert_embeddings([neighbor.text for neighbor in filtered_neighbors])
+
+            # Calculate cosine similarity between context and neighbors
+            similarities = torch.nn.functional.cosine_similarity(context_embedding, neighbor_embeddings, dim=1)
+
+            # Debug: Check for NaN or inf in similarities
+            if torch.isnan(similarities).any() or torch.isinf(similarities).any():
+                print("Warning: Similarities contain NaN or inf. Replacing with small values.")
+                similarities = torch.nan_to_num(similarities, nan=1e-10, posinf=1e10, neginf=-1e10)
+
+            # Combine BERT similarities with Markov probabilities
+            probabilities = self._combine_probabilities(filtered_neighbors, similarities.numpy())
+
+            # Debug: Check for NaN or inf in probabilities
+            if np.isnan(probabilities).any() or np.isinf(probabilities).any():
+                print("Warning: Probabilities contain NaN or inf. Replacing with uniform distribution.")
+                probabilities = np.ones_like(probabilities) / len(probabilities)
+
+            # Normalize probabilities to ensure they sum to 1
+            probabilities = probabilities / np.sum(probabilities)
+
+            # Ensure no NaNs remain after normalization
+            if np.isnan(probabilities).any():
+                print("Warning: Probabilities still contain NaN after normalization. Using uniform distribution.")
+                probabilities = np.ones_like(probabilities) / len(probabilities)
+
+            # Sample the next word
+            next_word_idx = sampling_function(probabilities, sampling_config)
+            next_word = filtered_neighbors[next_word_idx].text
+
+            # Add the next word to the reply
+            reply_words.append(next_word)
+
+            # Update the current word
+            current_word = next_word
+
+        return reply_words
+
+    def _pre_filter_neighbors(self, neighbors: MarkovNeighbors, sampling_config: dict) -> List[MarkovNeighbor]:
+        """Pre-filter neighbors to reduce the candidate pool."""
+        # Use Markov probabilities (e.g., transition counts) to filter candidates
+        markov_probs = []
+        for neighbor in neighbors:
+            count = neighbor.values[NeighborValueIdx.COUNT.value]  # Access count from MarkovNeighbor
+            markov_probs.append(count)
+
+        # Normalize Markov probabilities
+        markov_probs = np.array(markov_probs, dtype=np.float32)
+        markov_probs /= markov_probs.sum()
+
+        # Select top-k candidates based on Markov probabilities
+        top_k = sampling_config.get('top_k', 100)  # Adjust top_k as needed
+        top_k_indices = np.argsort(markov_probs)[-top_k:]
+        return [neighbors[i] for i in top_k_indices]
+
+    def _get_bert_embeddings(self, words: List[str]) -> torch.Tensor:
+        """Get BERT embeddings for a list of words, using caching."""
+        embeddings = []
+        for word in words:
+            if word in self.embedding_cache:
+                embeddings.append(self.embedding_cache[word])
+            else:
+                word_inputs = tokenizer(word, return_tensors='pt', truncation=True, padding=True)
+                with torch.no_grad():
+                    word_outputs = model(**word_inputs)
+                word_embedding = word_outputs.last_hidden_state.mean(dim=1)
+                self.embedding_cache[word] = word_embedding
+                embeddings.append(word_embedding)
+        return torch.cat(embeddings, dim=0)
+
+    def _combine_probabilities(self, neighbors: List[MarkovNeighbor], similarities: np.ndarray) -> np.ndarray:
+        """Combine BERT similarities with Markov probabilities."""
+        # Check for empty neighbors
+        if not neighbors:
+            print("Warning: No neighbors provided. Returning uniform probabilities.")
+            return np.ones_like(similarities) / len(similarities)
+
+        # Fetch Markov probabilities (e.g., transition counts) for neighbors
+        markov_probs = []
+        for neighbor in neighbors:
+            count = neighbor.values[NeighborValueIdx.COUNT.value]  # Access count from MarkovNeighbor
+            markov_probs.append(count)
+
+        # Convert to numpy array
+        markov_probs = np.array(markov_probs, dtype=np.float32)
+
+        # Check for NaN or inf in Markov probabilities
+        if np.isnan(markov_probs).any() or np.isinf(markov_probs).any():
+            print("Warning: Markov probabilities contain NaN or inf. Replacing with small values.")
+            markov_probs = np.nan_to_num(markov_probs, nan=1e-10, posinf=1e10, neginf=-1e10)
+
+        # Normalize Markov probabilities
+        markov_probs_sum = markov_probs.sum()
+        if markov_probs_sum == 0:
+            print("Warning: Markov probabilities sum to zero. Using uniform distribution.")
+            markov_probs = np.ones_like(markov_probs) / len(markov_probs)
+        else:
+            markov_probs /= markov_probs_sum
+
+        # Check for NaN or inf in similarities
+        if np.isnan(similarities).any() or np.isinf(similarities).any():
+            print("Warning: Similarities contain NaN or inf. Replacing with small values.")
+            similarities = np.nan_to_num(similarities, nan=1e-10, posinf=1e10, neginf=-1e10)
+
+        # Combine BERT similarities and Markov probabilities
+        combined_probs = similarities * markov_probs
+
+        # Normalize combined probabilities
+        combined_probs_sum = combined_probs.sum()
+        if combined_probs_sum == 0:
+            print("Warning: Combined probabilities sum to zero. Using uniform distribution.")
+            combined_probs = np.ones_like(combined_probs) / len(combined_probs)
+        else:
+            combined_probs /= combined_probs_sum
+
+        # Final check for NaN or inf
+        if np.isnan(combined_probs).any() or np.isinf(combined_probs).any():
+            print("Warning: Combined probabilities contain NaN or inf. Using uniform distribution.")
+            combined_probs = np.ones_like(combined_probs) / len(combined_probs)
+
+        return combined_probs
+
 
 
 class MarkovGenerator(object):
