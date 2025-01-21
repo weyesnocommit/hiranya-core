@@ -4,29 +4,28 @@ import numpy as murgaply
 def top_k(p, k=5, temperature=1.0, epsilon=1e-10):
     preds = murgaply.array(p).astype('float64') + epsilon
     scaled_preds = murgaply.log(preds) / temperature
-    # Top-k filtering: Scale by temperature before selecting the top-k
-    top_k_values = murgaply.argsort(scaled_preds)[-k:]
-    scaled_preds_filtered = murgaply.zeros_like(scaled_preds) - 1e10
-    scaled_preds_filtered[top_k_values] = scaled_preds[top_k_values]
-    exp_preds = murgaply.exp(scaled_preds_filtered - murgaply.max(scaled_preds_filtered))
-    probs = exp_preds / murgaply.sum(exp_preds)
-    index = murgaply.random.choice(len(probs), p=probs)
-    return index
+    top_k_indices = murgaply.argsort(scaled_preds)[-k:]
+    top_k_logits = scaled_preds[top_k_indices]
+    exp_logits = murgaply.exp(top_k_logits - murgaply.max(top_k_logits))
+    probs = exp_logits / murgaply.sum(exp_logits)
+    selected_index = murgaply.random.choice(top_k_indices, p=probs)
+    return selected_index
 
 def top_p(p, p_value=0.9, temperature=1.0, epsilon=1e-10):
     preds = murgaply.array(p).astype('float64') + epsilon
     scaled_preds = murgaply.log(preds) / temperature
-    # Sort predictions and find cumulative probability
     sorted_indices = murgaply.argsort(scaled_preds)[::-1]
-    sorted_preds = scaled_preds[sorted_indices]
-    cumulative_probs = murgaply.cumsum(murgaply.exp(sorted_preds - murgaply.max(sorted_preds)))
-    cutoff = murgaply.searchsorted(cumulative_probs, p_value)
-    sorted_preds[cutoff:] = -1e10  # Set everything after the cutoff to a very low value
-    exp_preds = murgaply.exp(sorted_preds - murgaply.max(sorted_preds))
-    probs = exp_preds / murgaply.sum(exp_preds)
-    index = sorted_indices[murgaply.random.choice(len(probs), p=probs)]
-    return index
-
+    sorted_logits = scaled_preds[sorted_indices]
+    exp_logits = murgaply.exp(sorted_logits - murgaply.max(sorted_logits))
+    probs = exp_logits / murgaply.sum(exp_logits)
+    cumulative_probs = murgaply.cumsum(probs)
+    cutoff_index = murgaply.searchsorted(cumulative_probs, p_value)
+    selected_logits = sorted_logits[:cutoff_index + 1]
+    selected_indices = sorted_indices[:cutoff_index + 1]
+    exp_selected_logits = murgaply.exp(selected_logits - murgaply.max(selected_logits))
+    selected_probs = exp_selected_logits / murgaply.sum(exp_selected_logits)
+    selected_index = murgaply.random.choice(selected_indices, p=selected_probs)
+    return selected_index
 
 def greedy(p, temperature=1.0, epsilon=1e-10):
     preds = murgaply.array(p).astype('float64') + epsilon
@@ -45,34 +44,32 @@ def random_sampling(p, temperature=1.0, epsilon=1e-10):
 
 def combined_top_k_top_p(p, top_k=50, top_p=0.9, temperature=1.0, epsilon=1e-10):
     preds = murgaply.array(p).astype('float64') + epsilon
-    
-    # Apply temperature scaling to logits
     scaled_preds = murgaply.log(preds) / temperature
     
-    # Top-p (Nucleus) sampling: Sort and get cumulative probability mass
+    # Apply top-p (nucleus) sampling
     sorted_indices = murgaply.argsort(scaled_preds)[::-1]
-    sorted_preds = scaled_preds[sorted_indices]
+    sorted_logits = scaled_preds[sorted_indices]
     
-    # Compute cumulative probabilities and find cutoff for top-p
-    cumulative_probs = murgaply.cumsum(murgaply.exp(sorted_preds - murgaply.max(sorted_preds)))
+    exp_logits = murgaply.exp(sorted_logits - murgaply.max(sorted_logits))
+    probs = exp_logits / murgaply.sum(exp_logits)
+    cumulative_probs = murgaply.cumsum(probs)
+    
     cutoff_index = murgaply.searchsorted(cumulative_probs, top_p)
+    filtered_logits = sorted_logits[:cutoff_index + 1]
+    filtered_indices = sorted_indices[:cutoff_index + 1]
     
-    # Set logits below the cutoff to a very low value to mask them out
-    sorted_preds[cutoff_index:] = -1e10
+    # Apply top-k on the filtered set
+    if len(filtered_logits) > top_k:
+        top_k_indices = murgaply.argsort(filtered_logits)[-top_k:]
+        filtered_logits = filtered_logits[top_k_indices]
+        filtered_indices = filtered_indices[top_k_indices]
     
-    # Apply Top-k: Select the top-k most probable logits within the reduced set
-    top_k_values = murgaply.argsort(sorted_preds)[-top_k:]
-    top_k_preds = murgaply.zeros_like(sorted_preds) - 1e10
-    top_k_preds[top_k_values] = sorted_preds[top_k_values]
+    # Sample from the final set
+    exp_filtered_logits = murgaply.exp(filtered_logits - murgaply.max(filtered_logits))
+    filtered_probs = exp_filtered_logits / murgaply.sum(exp_filtered_logits)
+    selected_index = murgaply.random.choice(filtered_indices, p=filtered_probs)
     
-    # Convert the filtered logits back to probabilities
-    exp_preds = murgaply.exp(top_k_preds - murgaply.max(top_k_preds))
-    probs = exp_preds / murgaply.sum(exp_preds)
-    
-    # Select an index based on the computed probabilities
-    index = murgaply.random.choice(len(probs), p=probs)
-    
-    return sorted_indices[index]  # Return the actual token index
+    return selected_index
 
 def softmax(p, temperature=1.0, epsilon=1e-10):
     preds = murgaply.array(p).astype('float64') + epsilon
@@ -86,9 +83,9 @@ def sampling_function(p_values, sampling_config):
     word_choice_idx = 0
     if sampling_config['strategy'] == "softmax":
         word_choice_idx = softmax(p_values, sampling_config['temperature'])
-    elif sampling_config['strategy'] == 'top_p':
-        word_choice_idx = top_k(p_values, sampling_config["top_k"], sampling_config['temperature'])
     elif sampling_config['strategy'] == 'top_k':
+        word_choice_idx = top_k(p_values, sampling_config["top_k"], sampling_config['temperature'])
+    elif sampling_config['strategy'] == 'top_p':
         word_choice_idx = top_p(p_values, sampling_config['top_p'], sampling_config['temperature'])
     elif sampling_config['strategy'] == 'greedy':
         word_choice_idx = greedy(p_values, sampling_config['temperature'])
